@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class Board(BaseModel):
@@ -50,6 +50,13 @@ class GeneratedPost(BaseModel):
     subject: str | None = None
     meme_query: str | None = None
     reasoning_tags: list[str] = Field(default_factory=list)
+
+    # The prompt tells the model to use null for empty fields, and some
+    # models apply that to the list as well.
+    @field_validator("reasoning_tags", mode="before")
+    @classmethod
+    def _none_is_empty(cls, value: Any) -> Any:
+        return [] if value is None else value
 
 
 class ProgressEvent(BaseModel):

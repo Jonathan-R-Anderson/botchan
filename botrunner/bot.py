@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -10,7 +11,7 @@ import yaml
 from .api_client import ForumClient
 from .llm import OpenAICompatibleLLM
 from .memory import BotMemory
-from .meme_search import KnowYourMemeSearch
+from .meme_search import KnowYourMemeSearch, MemeResult
 from .models import Board, ProgressEvent, ThreadSummary
 from .moderation import validate_post
 from .seeborg import SeeborgLinein
@@ -19,6 +20,17 @@ from .seeborg import SeeborgLinein
 ProgressCallback = Callable[[ProgressEvent], Awaitable[None]]
 
 log = logging.getLogger("botchan.bot")
+
+STOPWORDS = frozenset(
+    """
+    a about after all also am an and any are as at be because been before
+    but by can could did do does dont for from get got had has have he her
+    him his how i if im in into is it its just like me more most my no not
+    now of off on one only or other our out over said she so some than
+    that the their them then there they this to too up us very was we were
+    what when which who will with would you your
+    """.split()
+)
 
 
 class ForumBot:
@@ -148,32 +160,48 @@ class ForumBot:
                 f"{self.bot_id} generated a near-duplicate post"
             )
 
-        if (
-            self.meme_search
-            and generated.meme_query
-            and random.random() < self.meme_probability
-        ):
+        # New threads must carry a Know Your Meme image; replies attach
+        # one only occasionally. The comment itself drives the search,
+        # with progressively broader fallbacks.
+        image_queries = [
+            self.comment_query(body),
+            generated.meme_query or "",
+            generated.subject or "",
+            board.title or board.board,
+        ]
+
+        image: MemeResult | None = None
+
+        if thread is None:
+            if not self.meme_search:
+                raise RuntimeError(
+                    "meme_search is disabled but new threads require an image"
+                )
+
             await self.progress(
                 "meme-search",
                 76,
-                f"Searching Know Your Meme for {generated.meme_query!r}",
+                "Finding the required OP image on Know Your Meme",
             )
+            image = await self.find_meme_image(image_queries)
 
-            results = await self.meme_search.search(
-                generated.meme_query,
-                limit=3,
-            )
-
-            if results:
-                selected = random.choice(results)
-
-                # Prefer linking to the KYM page rather than hotlinking
-                # an image whose hosting or reuse policy is unclear.
-                body += (
-                    "\n\n"
-                    f"[Relevant meme: {selected.title}]"
-                    f"({selected.page_url})"
+            if image is None:
+                raise RuntimeError(
+                    "no Know Your Meme image found for the OP; "
+                    "skipping this cycle"
                 )
+        elif self.meme_search and random.random() < self.meme_probability:
+            await self.progress(
+                "meme-search",
+                76,
+                "Looking for a meme image to attach",
+            )
+            image = await self.find_meme_image(image_queries)
+
+        if image:
+            body += f"\n\n{image.image_url}"
+            # Re-validate so the final body still obeys the length rules.
+            body = validate_post(body, blocklist=self.blocklist)
 
         await self.progress(
             "validation",
@@ -264,6 +292,76 @@ class ForumBot:
             "Post submitted successfully",
             response=response,
         )
+
+    @staticmethod
+    def comment_query(text: str, word_count: int = 4) -> str:
+        """Distill a comment into a few content words for a KYM search."""
+        words = re.findall(r"[a-z][a-z']{2,}", text.lower())
+
+        unique: list[str] = []
+        for word in words:
+            if word in STOPWORDS or word in unique:
+                continue
+            unique.append(word)
+            if len(unique) >= word_count:
+                break
+
+        return " ".join(unique)
+
+    async def find_meme_image(
+        self,
+        queries: list[str],
+    ) -> MemeResult | None:
+        """Try each query in order; return the first result with an image."""
+        tried: set[str] = set()
+
+        for query in queries:
+            query = (query or "").strip()
+            if not query or query.lower() in tried:
+                continue
+            tried.add(query.lower())
+
+            try:
+                results = await self.meme_search.search(query, limit=5)
+            except Exception as exc:
+                log.warning(
+                    "%s: Know Your Meme search failed for %r: %s",
+                    self.bot_id,
+                    query,
+                    exc,
+                )
+                continue
+
+            with_images = [r for r in results if r.image_url]
+            if with_images:
+                choice = random.choice(with_images)
+                log.info(
+                    "%s: KYM image found for %r: %s",
+                    self.bot_id,
+                    query,
+                    choice.image_url,
+                )
+                return choice
+
+        # Nothing matched any query — fall back to a completely random
+        # KYM entry so an image is still available.
+        try:
+            fallback = await self.meme_search.random_image()
+        except Exception as exc:
+            log.warning(
+                "%s: random KYM image fetch failed: %s",
+                self.bot_id,
+                exc,
+            )
+            return None
+
+        if fallback:
+            log.info(
+                "%s: using random KYM image: %s",
+                self.bot_id,
+                fallback.image_url,
+            )
+        return fallback
 
     @staticmethod
     def choose_board(boards: list[Board]) -> Board:
