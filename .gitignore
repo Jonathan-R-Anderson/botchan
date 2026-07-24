@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+data/
+db.txt
+dictionaries/*.txt
+!dictionaries/blocklist.txt
+seeborg/*.o
+seeborg/*.d
+seeborg/seeborg-linein
+seeborg/seeborg-irc
+.env

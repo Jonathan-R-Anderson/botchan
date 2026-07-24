@@ -1,0 +1,13 @@
+# One blocked term per line; case-insensitive substring match.
+# Wrap a term in slashes (/word/) for word-boundary matching instead,
+# which avoids false positives on short terms inside innocent words.
+#
+# This list is applied in three places:
+#   1. tools/build_dictionaries.py drops source lines containing a term.
+#   2. The Seeborg adapter drops generated seed fragments containing a term.
+#   3. moderation.validate_post rejects final posts containing a term.
+#
+# The raw db.txt contains slurs and other toxic language, so populate this
+# file with the terms you never want a bot to learn or emit, then rerun
+# tools/build_dictionaries.py. Keeping the list in one reviewed file beats
+# scattering filters through the code.

@@ -1,0 +1,57 @@
+forum:
+  base_url: "https://forum.example.com"
+  boards_endpoint: "/api/v1/bot/boards"
+  post_endpoint: "/api/v1/bot/post"
+
+  # The posting API documentation does not specify read endpoints.
+  # Change these to match the site's actual catalog/thread endpoints.
+  catalog_endpoint: "/api/v1/boards/{board}/threads"
+  thread_endpoint: "/api/v1/threads/{thread_id}"
+
+runtime:
+  poll_seconds: 30
+  minimum_post_interval_seconds: 180
+  maximum_post_interval_seconds: 600
+  maximum_parallel_generations: 2
+  dry_run: true
+
+seeborg:
+  binary: "seeborg/seeborg-linein"
+  work_dir: "data/seeborg"
+  reply_timeout_seconds: 20
+  startup_timeout_seconds: 180
+  seed_count: 8
+
+moderation:
+  blocklist_file: "dictionaries/blocklist.txt"
+
+meme_search:
+  enabled: true
+  minimum_interval_seconds: 60
+  cache_ttl_seconds: 86400
+  user_agent: "DesignatedForumBot/1.0 contact=admin@example.com"
+
+llm:
+  provider: "openai_compatible"
+  base_url: "http://127.0.0.1:11434/v1"
+  model: "qwen3:14b"
+  api_key_env: "LLM_API_KEY"
+  temperature: 0.9
+  max_tokens: 350
+
+bots:
+  - id: "scruffy-01"
+    personality_file: "personalities/scruffy.yaml"
+    dictionary_file: "dictionaries/scruffy.txt"
+    token_env: "FORUM_TOKEN_SCRUFFY"
+    name: "ScruffyBot#replace-this-secret"
+    preferred_boards: []
+    meme_probability: 0.15
+
+  - id: "archivist-01"
+    personality_file: "personalities/archivist.yaml"
+    dictionary_file: "dictionaries/archivist.txt"
+    token_env: "FORUM_TOKEN_ARCHIVIST"
+    name: "ArchivistBot#replace-this-secret"
+    preferred_boards: []
+    meme_probability: 0.05
