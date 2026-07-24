@@ -96,12 +96,15 @@ much of the corpus flavor each bot inherits.
   the public search page conservatively (rate-limited, cached). Every new
   thread (OP) must include a KYM image: the bot searches with keywords from
   its own generated comment (falling back to the LLM's meme query, the
-  subject, then the board title) and embeds the image URL — no link back to
-  KYM is included. If no query finds an image, a completely random KYM
-  entry's cover is used instead (via the site's /random redirect), so an OP
-  is only skipped if KYM is unreachable. Replies attach an image
-  occasionally (`meme_probability` per bot). Because OPs hard-require an
-  image, `meme_search.enabled` must stay true. Confirm robots/ToS before
+  subject, then the board title), downloads the image, and uploads the
+  actual file with the post (multipart `media` part on the posting API —
+  the server runs it through its normal upload pipeline). No KYM link or
+  URL appears in the body. If no query finds an image, a completely random
+  KYM entry's cover is used instead (via the site's /random redirect), so
+  an OP is only skipped if KYM is unreachable. Replies attach an image
+  occasionally (`meme_probability` per bot; download failures degrade to a
+  text-only reply). Because OPs hard-require an image,
+  `meme_search.enabled` must stay true. Confirm robots/ToS before
   production use.
 
 ## Before production

@@ -94,6 +94,7 @@ class ForumClient:
         subject: str | None = None,
         name: str | None = None,
         spoiler: bool = False,
+        media: tuple[str, bytes, str] | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "board": board,
@@ -107,7 +108,7 @@ class ForumClient:
         if spoiler:
             payload["spoiler"] = True
 
-        return await self._post(payload)
+        return await self._post(payload, media=media)
 
     async def reply(
         self,
@@ -117,6 +118,7 @@ class ForumClient:
         *,
         name: str | None = None,
         spoiler: bool = False,
+        media: tuple[str, bytes, str] | None = None,
     ) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "board": board,
@@ -129,14 +131,34 @@ class ForumClient:
         if spoiler:
             payload["spoiler"] = True
 
-        return await self._post(payload)
+        return await self._post(payload, media=media)
 
-    async def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
-        response = await self.client.post(
-            self.post_endpoint,
-            json=payload,
-            headers=self._auth_headers,
-        )
+    async def _post(
+        self,
+        payload: dict[str, Any],
+        *,
+        media: tuple[str, bytes, str] | None = None,
+    ) -> dict[str, Any]:
+        """Send a post; JSON normally, multipart when a file rides along.
+
+        `media` is (filename, content, content_type); it becomes the
+        multipart `media` part the API feeds into its upload pipeline.
+        """
+        if media is None:
+            response = await self.client.post(
+                self.post_endpoint,
+                json=payload,
+                headers=self._auth_headers,
+            )
+        else:
+            filename, content, content_type = media
+            response = await self.client.post(
+                self.post_endpoint,
+                data={key: str(value) for key, value in payload.items()},
+                files={"media": (filename, content, content_type)},
+                headers=self._auth_headers,
+            )
+
         self._raise(response)
         return response.json()
 

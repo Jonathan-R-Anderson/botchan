@@ -198,10 +198,39 @@ class ForumBot:
             )
             image = await self.find_meme_image(image_queries)
 
+        media: tuple[str, bytes, str] | None = None
+
         if image:
-            body += f"\n\n{image.image_url}"
-            # Re-validate so the final body still obeys the length rules.
-            body = validate_post(body, blocklist=self.blocklist)
+            try:
+                media = await self.meme_search.download_image(
+                    image.image_url
+                )
+            except Exception as exc:
+                log.warning(
+                    "%s: image download failed for %s: %s",
+                    self.bot_id,
+                    image.image_url,
+                    exc,
+                )
+
+            if media is None:
+                if thread is None:
+                    raise RuntimeError(
+                        "could not download the required OP image; "
+                        "skipping this cycle"
+                    )
+                log.warning(
+                    "%s: posting reply without the image",
+                    self.bot_id,
+                )
+            else:
+                log.info(
+                    "%s: image ready to attach: %s (%d bytes, %s)",
+                    self.bot_id,
+                    media[0],
+                    len(media[1]),
+                    media[2],
+                )
 
         await self.progress(
             "validation",
@@ -217,10 +246,11 @@ class ForumBot:
             )
 
             log.info(
-                "%s: dry run — would have posted to /%s/ (thread %s)",
+                "%s: dry run — would have posted to /%s/ (thread %s)%s",
                 self.bot_id,
                 board.board,
                 thread.thread_id if thread else "new",
+                f" with image {media[0]}" if media else "",
             )
             await self.progress(
                 "complete",
@@ -242,6 +272,7 @@ class ForumBot:
                 thread_id=thread.thread_id,
                 body=body,
                 name=self.name,
+                media=media,
             )
         else:
             log.info(
@@ -255,6 +286,7 @@ class ForumBot:
                 body=body,
                 subject=generated.subject,
                 name=self.name,
+                media=media,
             )
 
         log.info(

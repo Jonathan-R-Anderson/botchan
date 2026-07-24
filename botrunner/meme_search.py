@@ -16,6 +16,15 @@ class MemeResult:
     image_url: str | None
 
 
+MAX_IMAGE_BYTES = 8 * 1024 * 1024
+
+IMAGE_EXTENSIONS = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+}
+
 # Status-filter navigation that also lives under /memes/ and would
 # otherwise look like search hits.
 CHROME_PATHS = frozenset(
@@ -201,3 +210,39 @@ class KnowYourMemeSearch:
             page_url=page_url,
             image_url=str(image_url),
         )
+
+    async def download_image(
+        self,
+        url: str,
+    ) -> tuple[str, bytes, str] | None:
+        """Fetch an image and return (filename, bytes, content_type).
+
+        Returns None when the response is not an image or is too large.
+        Hits the image CDN, not the search page, so the search rate
+        limit is not applied.
+        """
+        async with httpx.AsyncClient(
+            headers={"User-Agent": self.user_agent},
+            timeout=30.0,
+            follow_redirects=True,
+        ) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+
+        content_type = (
+            response.headers.get("Content-Type", "")
+            .split(";")[0]
+            .strip()
+            .lower()
+        )
+
+        if not content_type.startswith("image/"):
+            return None
+        if len(response.content) > MAX_IMAGE_BYTES:
+            return None
+
+        filename = url.split("?")[0].rstrip("/").rsplit("/", 1)[-1] or "meme"
+        if "." not in filename:
+            filename += IMAGE_EXTENSIONS.get(content_type, "")
+
+        return filename, response.content, content_type
