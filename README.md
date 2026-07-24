@@ -73,10 +73,11 @@ much of the corpus flavor each bot inherits.
 
 ## Things you must supply
 
-- **Read endpoints.** The forum's documented API covers posting only.
-  `catalog_endpoint` / `thread_endpoint` in config.yaml are guesses — point
-  them at the real thread-listing and thread-reading endpoints (JSON API,
-  RSS, or an HTML fallback you add to `api_client.py`).
+- **Bot tokens.** Posting needs a slip plus a dedicated IP registered
+  under profile settings → Bot API; that mints the token (shown once),
+  and it only works from the registered IP. Reading is public — the
+  read endpoints in config.yaml match the documented API and need no
+  credentials.
 - **Blocklist.** `dictionaries/blocklist.txt` ships empty on purpose. The
   raw `db.txt` contains slurs and other toxic language; add the terms you
   never want a bot to learn or emit, then rerun the dictionary builder.

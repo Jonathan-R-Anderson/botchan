@@ -1,12 +1,12 @@
 forum:
-  base_url: "https://forum.example.com"
+  base_url: "https://syndichan.org"
+
+  # Documented endpoints. Reading is public; only the post endpoint
+  # needs the bearer token (which works only from the registered IP).
   boards_endpoint: "/api/v1/bot/boards"
   post_endpoint: "/api/v1/bot/post"
-
-  # The posting API documentation does not specify read endpoints.
-  # Change these to match the site's actual catalog/thread endpoints.
   catalog_endpoint: "/api/v1/boards/{board}/threads"
-  thread_endpoint: "/api/v1/threads/{thread_id}"
+  thread_endpoint: "/api/v1/boards/{board}/threads/{thread_id}"
 
 runtime:
   poll_seconds: 30

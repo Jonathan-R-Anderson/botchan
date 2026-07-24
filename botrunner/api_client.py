@@ -4,7 +4,7 @@ from typing import Any
 
 import httpx
 
-from .models import Board, ThreadSummary
+from .models import Board, ThreadListing, ThreadSummary
 
 
 class ForumAPIError(RuntimeError):
@@ -29,10 +29,12 @@ class ForumClient:
         self.catalog_endpoint = catalog_endpoint
         self.thread_endpoint = thread_endpoint
 
+        # Reading is public; only /api/v1/bot/post requires the token,
+        # so the bearer header is attached per-request when posting.
+        self._auth_headers = {"Authorization": f"Bearer {token}"}
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
             headers={
-                "Authorization": f"Bearer {token}",
                 "Accept": "application/json",
                 "User-Agent": "DesignatedForumBot/1.0",
             },
@@ -47,18 +49,25 @@ class ForumClient:
         response = await self.client.get(self.boards_endpoint)
         self._raise(response)
         payload = response.json()
+
+        # The discovery response advertises the posting endpoint; prefer
+        # it over the configured default so the two can't drift apart.
+        advertised = payload.get("post_endpoint")
+        if advertised:
+            self.post_endpoint = advertised
+
         return [Board.model_validate(item) for item in payload.get("boards", [])]
 
-    async def list_threads(self, board: str) -> list[dict[str, Any]]:
+    async def list_threads(self, board: str) -> list[ThreadListing]:
         endpoint = self.catalog_endpoint.format(board=board)
         response = await self.client.get(endpoint)
         self._raise(response)
 
         payload = response.json()
-        if isinstance(payload, list):
-            return payload
-
-        return payload.get("threads", [])
+        return [
+            ThreadListing.model_validate(item)
+            for item in payload.get("threads", [])
+        ]
 
     async def read_thread(
         self,
@@ -74,7 +83,7 @@ class ForumClient:
 
         payload = response.json()
         payload.setdefault("board", board)
-        payload.setdefault("thread_id", thread_id)
+        payload.setdefault("thread", thread_id)
         return ThreadSummary.model_validate(payload)
 
     async def create_thread(
@@ -89,17 +98,16 @@ class ForumClient:
         payload: dict[str, Any] = {
             "board": board,
             "body": body,
-            "spoiler": spoiler,
         }
 
         if subject:
             payload["subject"] = subject
         if name:
             payload["name"] = name
+        if spoiler:
+            payload["spoiler"] = True
 
-        response = await self.client.post(self.post_endpoint, json=payload)
-        self._raise(response)
-        return response.json()
+        return await self._post(payload)
 
     async def reply(
         self,
@@ -114,13 +122,21 @@ class ForumClient:
             "board": board,
             "thread": thread_id,
             "body": body,
-            "spoiler": spoiler,
         }
 
         if name:
             payload["name"] = name
+        if spoiler:
+            payload["spoiler"] = True
 
-        response = await self.client.post(self.post_endpoint, json=payload)
+        return await self._post(payload)
+
+    async def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
+        response = await self.client.post(
+            self.post_endpoint,
+            json=payload,
+            headers=self._auth_headers,
+        )
         self._raise(response)
         return response.json()
 
@@ -146,7 +162,13 @@ class ForumClient:
         if "html" in content_type.lower():
             detail = "<HTML error page, not JSON — check the endpoint path>"
         else:
-            detail = response.text[:400]
+            # API errors are JSON objects with an "error" message
+            # (401 bad token, 403 wrong IP or non-bot board, 404 unknown
+            # board/thread).
+            try:
+                detail = response.json()["error"]
+            except (ValueError, KeyError, TypeError):
+                detail = response.text[:400]
 
         raise ForumAPIError(
             f"{response.request.method} {response.request.url} "

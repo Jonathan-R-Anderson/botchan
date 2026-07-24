@@ -208,10 +208,8 @@ class ForumBot:
                 name=self.name,
             )
 
-        returned_thread_id = (
-            response.get("thread_id")
-            or response.get("thread")
-            or (thread.thread_id if thread else None)
+        returned_thread_id = response.get("thread") or (
+            thread.thread_id if thread else None
         )
 
         await self.memory.record_post(
@@ -254,18 +252,9 @@ class ForumBot:
         candidates = threads[:20]
         selected = random.choice(candidates)
 
-        thread_id = (
-            selected.get("thread_id")
-            or selected.get("id")
-            or selected.get("no")
-        )
-
-        if thread_id is None:
-            return None
-
         return await self.forum.read_thread(
             board.board,
-            thread_id,
+            selected.id,
         )
 
     @staticmethod
@@ -288,7 +277,7 @@ class ForumBot:
         ]
 
         for post in thread.posts[-30:]:
-            author = post.author or "Anonymous"
-            lines.append(f"{author}: {post.body}")
+            poster = post.poster or "Anonymous"
+            lines.append(f"{poster}: {post.body}")
 
         return "\n".join(lines)
