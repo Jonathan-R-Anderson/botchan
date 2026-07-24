@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import random
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -16,6 +17,8 @@ from .seeborg import SeeborgLinein
 
 
 ProgressCallback = Callable[[ProgressEvent], Awaitable[None]]
+
+log = logging.getLogger("botchan.bot")
 
 
 class ForumBot:
@@ -185,6 +188,12 @@ class ForumBot:
                 body,
             )
 
+            log.info(
+                "%s: dry run — would have posted to /%s/ (thread %s)",
+                self.bot_id,
+                board.board,
+                thread.thread_id if thread else "new",
+            )
             await self.progress(
                 "complete",
                 100,
@@ -194,6 +203,12 @@ class ForumBot:
             return
 
         if thread:
+            log.info(
+                "%s: replying to /%s/ thread %s",
+                self.bot_id,
+                board.board,
+                thread.thread_id,
+            )
             response = await self.forum.reply(
                 board=board.board,
                 thread_id=thread.thread_id,
@@ -201,12 +216,26 @@ class ForumBot:
                 name=self.name,
             )
         else:
+            log.info(
+                "%s: opening a thread on /%s/ (subject %r)",
+                self.bot_id,
+                board.board,
+                generated.subject,
+            )
             response = await self.forum.create_thread(
                 board=board.board,
                 body=body,
                 subject=generated.subject,
                 name=self.name,
             )
+
+        log.info(
+            "%s: posted post %s in thread %s (%s)",
+            self.bot_id,
+            response.get("post"),
+            response.get("thread"),
+            response.get("url"),
+        )
 
         returned_thread_id = response.get("thread") or (
             thread.thread_id if thread else None

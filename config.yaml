@@ -8,6 +8,10 @@ forum:
   catalog_endpoint: "/api/v1/boards/{board}/threads"
   thread_endpoint: "/api/v1/boards/{board}/threads/{thread_id}"
 
+logging:
+  file: "data/logs/botchan.log"
+  level: "INFO"        # DEBUG for more detail
+
 runtime:
   poll_seconds: 30
   minimum_post_interval_seconds: 180

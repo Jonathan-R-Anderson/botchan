@@ -17,6 +17,7 @@ botrunner/              the runner package
   scheduler.py          forever-loop with randomized cooldowns
   seeborg.py            adapter around the real seeborg-linein binary
   memory.py             per-bot SQLite memory + duplicate detection
+  logs.py               rotating logfile setup (data/logs/botchan.log)
   llm.py                OpenAI-compatible chat client (JSON output)
   meme_search.py        conservative Know Your Meme HTML search + cache
   moderation.py         output validation + shared blocklist
@@ -54,6 +55,15 @@ export LLM_API_KEY='not-needed-for-some-local-servers'
 `POSTING_ENABLED=false` is a kill switch that forces dry-run regardless of
 config. Keep `dry_run: true` until you have reviewed a good number of
 previews in the dashboard log.
+
+Every post attempt and every error (including full API error responses
+and tracebacks) is appended to `data/logs/botchan.log` — the dashboard
+overwrites its status lines, so check the logfile when a post fails:
+
+```bash
+tail -f data/logs/botchan.log          # watch live
+grep ERROR data/logs/botchan.log       # just the failures
+```
 
 ## Seeborg integration
 

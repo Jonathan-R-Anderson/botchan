@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 
 from .api_client import ForumAPIError
 from .bot import ForumBot
+
+log = logging.getLogger("botchan.scheduler")
 
 
 async def run_bot_forever(
@@ -21,12 +24,17 @@ async def run_bot_forever(
             raise
         except ForumAPIError as exc:
             extra_delay = exc.retry_after or 0.0
+            log.error("%s: forum error: %s", bot.bot_id, exc)
             await bot.progress(
                 "error",
                 100,
                 f"Forum error: {exc}",
             )
         except Exception as exc:
+            log.exception(
+                "%s: unexpected error during participation cycle",
+                bot.bot_id,
+            )
             await bot.progress(
                 "error",
                 100,

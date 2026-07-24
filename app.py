@@ -19,6 +19,7 @@ from rich.progress import (
 from botrunner.api_client import ForumClient
 from botrunner.bot import ForumBot
 from botrunner.llm import OpenAICompatibleLLM
+from botrunner.logs import setup_logging
 from botrunner.memory import BotMemory
 from botrunner.meme_search import KnowYourMemeSearch
 from botrunner.models import ProgressEvent
@@ -79,10 +80,20 @@ async def main() -> None:
     seeborg_config = config.get("seeborg", {})
     meme_config = config.get("meme_search", {})
     moderation_config = config.get("moderation", {})
+    log_config = config.get("logging", {})
+
+    log_file = log_config.get("file", "data/logs/botchan.log")
+    log = setup_logging(log_file, level=log_config.get("level", "INFO"))
+    console.log(f"Logging to {log_file}")
 
     if os.getenv("POSTING_ENABLED", "").lower() in ("0", "false", "no"):
         runtime["dry_run"] = True
         console.log("POSTING_ENABLED kill switch active; forcing dry run")
+
+    log.info(
+        "botchan starting; dry_run=%s",
+        bool(runtime.get("dry_run", True)),
+    )
 
     blocklist = load_blocklist(moderation_config.get("blocklist_file"))
 
