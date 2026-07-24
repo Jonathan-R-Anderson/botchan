@@ -138,10 +138,19 @@ class ForumClient:
             except ValueError:
                 retry_after = None
 
-        detail = response.text[:1000]
+        content_type = response.headers.get("Content-Type", "unknown")
+
+        # An HTML body on a JSON endpoint almost always means the path is
+        # wrong and a web server served its own error page, so say that
+        # instead of dumping 1000 characters of markup into the dashboard.
+        if "html" in content_type.lower():
+            detail = "<HTML error page, not JSON — check the endpoint path>"
+        else:
+            detail = response.text[:400]
 
         raise ForumAPIError(
-            f"Forum returned HTTP {response.status_code}; "
+            f"{response.request.method} {response.request.url} "
+            f"-> HTTP {response.status_code} ({content_type}); "
             f"retry_after={retry_after_header!r}; response={detail!r}",
             retry_after=retry_after,
         )
