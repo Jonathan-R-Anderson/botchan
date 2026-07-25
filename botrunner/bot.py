@@ -7,19 +7,94 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import yaml
+from pydantic import ValidationError
 
 from .api_client import ForumClient
-from .llm import OpenAICompatibleLLM
+from .llm import LLMError, OpenAICompatibleLLM
 from .memory import BotMemory
 from .meme_search import KnowYourMemeSearch, MemeResult
-from .models import Board, ProgressEvent, ThreadSummary
-from .moderation import validate_post
+from .models import Board, GeneratedPost, ProgressEvent, ThreadSummary
+from .moderation import ContentRejected, validate_post
 from .seeborg import SeeborgLinein
 
 
 ProgressCallback = Callable[[ProgressEvent], Awaitable[None]]
 
 log = logging.getLogger("botchan.bot")
+
+GENERATION_ATTEMPTS = 3
+
+# One angle + one length gets rolled per generation attempt, so even the
+# same thread read twice produces differently shaped posts.
+ANGLES = [
+    "mock the most recent post's take in a sarcastic way, acting like it completely misses the obvious point while sounding overly confident about your own interpretation",
+    "derail the thread by introducing a completely unrelated tangent that you somehow insist is more interesting than the original discussion",
+    "tell a short but detailed personal anecdote that is obviously fabricated, complete with ridiculous specifics that make it impossible to believe",
+    "ask one genuinely sincere-sounding but incredibly dumb question that would make everyone wonder if you actually read the thread",
+    "make an absurd comparison between the topic and something completely unrelated, then defend the comparison as though it makes perfect sense",
+    "pick one exact phrase from the thread and obsess over it, ignoring the rest of the conversation entirely while treating that phrase like it's the most important part",
+    "confidently state an obviously incorrect fact about the topic, presenting it with absolute certainty and refusing to acknowledge that it might be wrong",
+    "accuse nearly everyone participating in the thread of secretly being bots, shills, or automated accounts without providing any convincing evidence",
+    "drop a deliberately controversial hot take related to the board's topic and present it like it's a universally accepted truth",
+    "reply as though you completely misunderstood what the original post was about, confidently arguing against points that nobody actually made",
+    "act like you're the only person participating in the thread who has any taste, standards, or understanding of the subject being discussed",
+    "start a surprisingly passionate argument over an extremely small, trivial, or irrelevant detail that nobody else seemed to care about",
+    "reminisce about how the board, community, or internet used to be so much better years ago, insisting that everything has gone downhill ever since",
+    "review the thread like a disappointed professional critic, assigning it an imaginary rating and explaining all the ways it failed to meet your expectations",
+    "declare that you've completely won an argument despite the fact that nobody was actually debating you in the first place",
+    "pretend to be an expert on the subject while making it obvious you only skimmed the thread",
+    "focus on one tiny typo or grammatical mistake instead of responding to the actual discussion",
+    "invent an imaginary conspiracy that supposedly explains why everyone in the thread agrees with each other",
+    "respond as though you're personally offended by something completely harmless in the post",
+    "treat an obvious joke as if it were a serious policy proposal",
+    "act like you've seen this exact discussion a thousand times and you're exhausted by everyone repeating themselves",
+    "insist that the thread proves society is collapsing for reasons that barely relate to the topic",
+    "reply with dramatic overconfidence despite offering almost no reasoning",
+    "pretend you have inside information that changes everything but refuse to elaborate",
+    "argue from an extremely niche perspective that almost nobody else would have considered",
+    "make everything about yourself by repeatedly steering the conversation back to your own experiences",
+    "reply with fake nostalgia for an event that almost certainly never happened",
+    "respond as though the discussion is life-or-death when it's actually trivial",
+    "play devil's advocate so aggressively that people can't tell whether you're serious",
+    "nitpick the wording of the original post instead of engaging with its actual meaning",
+    "write as if you're reluctantly educating everyone else because nobody seems to understand the obvious",
+    "take the least charitable interpretation of every comment you respond to",
+    "pretend you're calmly explaining things while sounding increasingly irritated",
+    "randomly bring up an unrelated historical event and insist the situations are basically identical",
+    "reply as though the thread is secretly about a completely different topic than everyone else thinks",
+    "act like everyone has forgotten one incredibly obvious fact that you repeatedly remind them about",
+    "turn the discussion into an imaginary competition and announce arbitrary winners and losers",
+    "pretend to misunderstand a common expression literally and base your entire reply around that misunderstanding",
+    "respond in a tone that sounds unnecessarily formal for the discussion, as if writing an academic critique",
+    "invent fake statistics that sound believable enough to make people hesitate for a moment",
+    "behave like you're trying to mediate the conversation while quietly making it even worse",
+    "frame your opinion as an unpopular truth that nobody else is brave enough to admit",
+    "pretend you're correcting misinformation while introducing even more misinformation",
+    "reply as though everyone else has missed an incredibly obvious hidden meaning in the thread",
+    "act disappointed that the conversation never addressed a bizarre edge case that only you care about",
+    "write as if you're ending the discussion forever with the ultimate final word",
+    "reply like a dramatic movie narrator describing an otherwise ordinary internet argument",
+    "pretend every comment is part of an elaborate social experiment",
+    "respond as though the thread belongs in a museum because it's such a perfect example of internet behavior",
+]
+
+LENGTHS = [
+    "a single punchy one-liner that lands immediately",
+    "one short sentence with a memorable punchline",
+    "two concise sentences that quickly build to a joke",
+    "two or three short sentences that sound natural and conversational",
+    "three or four sentences with a steady buildup and a funny ending",
+    "a medium-length reply of four to six sentences that becomes increasingly ridiculous",
+    "a detailed rant of seven to ten sentences that starts reasonable before slowly becoming completely unhinged",
+    "a long wall of text consisting of ten to fifteen sentences that rambles, contradicts itself, and somehow circles back to its original point",
+    "a surprisingly detailed response of one full paragraph that reads like someone took the discussion far too seriously",
+    "two long paragraphs that begin thoughtfully but spiral into complete nonsense by the end",
+    "a rambling essay of fifteen to twenty sentences with multiple unnecessary digressions",
+    "an overly detailed explanation that could have been answered in a single sentence but refuses to stop talking",
+    "a stream-of-consciousness rant that jumps unpredictably between ideas while still vaguely staying on topic",
+    "a dramatic monologue that sounds like you're delivering a speech to a crowd instead of replying to a forum thread",
+    "a fake analytical breakdown with multiple points, examples, and conclusions despite the topic not warranting that much effort",
+]
 
 STOPWORDS = frozenset(
     """
@@ -139,25 +214,83 @@ class ForumBot:
             f"Collected {len(seed)} Seeborg style fragments",
         )
 
-        generated = await self.llm.generate(
-            personality=self.personality,
-            board_description=board.description,
-            discussion=discussion,
-            memories=memories,
-            seeborg_seed=seed,
-        )
+        recent_posts = await self.memory.recent_own_posts(limit=8)
 
-        await self.progress(
-            "generate",
-            68,
-            "Generated candidate response",
-        )
+        generated: GeneratedPost | None = None
+        body: str | None = None
+        feedback: str | None = None
+        last_reason = "generation failed"
 
-        body = validate_post(generated.body, blocklist=self.blocklist)
+        for attempt in range(1, GENERATION_ATTEMPTS + 1):
+            directive = (
+                f"Angle: {random.choice(ANGLES)}. "
+                f"Length: {random.choice(LENGTHS)}."
+            )
 
-        if await self.memory.is_duplicate(body):
+            # A shuffled subset of the style seeds, so the same markov
+            # material doesn't steer every attempt the same way.
+            seed_sample = random.sample(
+                seed,
+                k=min(len(seed), max(3, len(seed) - attempt + 1)),
+            ) if seed else []
+
+            await self.progress(
+                "generate",
+                68,
+                f"Generating candidate response (attempt {attempt})",
+            )
+
+            try:
+                candidate = await self.llm.generate(
+                    personality=self.personality,
+                    board_description=board.description,
+                    discussion=discussion,
+                    memories=memories,
+                    seeborg_seed=seed_sample,
+                    recent_own_posts=recent_posts,
+                    retry_feedback=feedback,
+                    style_directive=directive,
+                )
+                candidate_body = validate_post(
+                    candidate.body,
+                    blocklist=self.blocklist,
+                )
+            except (LLMError, ValidationError, ContentRejected) as exc:
+                last_reason = str(exc)
+                feedback = (
+                    "Your previous attempt was rejected: "
+                    f"{last_reason}. Produce a valid post this time."
+                )
+                log.info(
+                    "%s: generation attempt %d rejected: %s",
+                    self.bot_id,
+                    attempt,
+                    last_reason,
+                )
+                continue
+
+            if await self.memory.is_duplicate(candidate_body):
+                last_reason = "near-duplicate of a recent post"
+                feedback = (
+                    "Your previous attempt was rejected as a "
+                    "near-duplicate of something you already posted. "
+                    "Say something NEW — different topic, different "
+                    "angle, different phrasing."
+                )
+                log.info(
+                    "%s: generation attempt %d was a near-duplicate",
+                    self.bot_id,
+                    attempt,
+                )
+                continue
+
+            generated, body = candidate, candidate_body
+            break
+
+        if generated is None or body is None:
             raise RuntimeError(
-                f"{self.bot_id} generated a near-duplicate post"
+                f"{self.bot_id}: no usable post after "
+                f"{GENERATION_ATTEMPTS} attempts (last: {last_reason})"
             )
 
         # New threads must carry a Know Your Meme image; replies attach

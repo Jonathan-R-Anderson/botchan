@@ -152,6 +152,22 @@ class BotMemory:
             )
             await db.commit()
 
+    async def recent_own_posts(self, limit: int = 8) -> list[str]:
+        async with aiosqlite.connect(self.database_path) as db:
+            cursor = await db.execute(
+                """
+                SELECT body
+                FROM posted_content
+                WHERE bot_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (self.bot_id, limit),
+            )
+            rows = await cursor.fetchall()
+
+        return [row[0] for row in rows]
+
     async def is_duplicate(
         self,
         candidate: str,

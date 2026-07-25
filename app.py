@@ -111,6 +111,15 @@ async def main() -> None:
         model=llm_config["model"],
         api_key_env=llm_config["api_key_env"],
         temperature=float(llm_config.get("temperature", 0.9)),
+        temperature_jitter=float(
+            llm_config.get("temperature_jitter", 0.0)
+        ),
+        presence_penalty=float(
+            llm_config.get("presence_penalty", 0.0)
+        ),
+        frequency_penalty=float(
+            llm_config.get("frequency_penalty", 0.0)
+        ),
         max_tokens=int(llm_config.get("max_tokens", 350)),
     )
 

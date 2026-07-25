@@ -42,7 +42,10 @@ llm:
   # does not fit; qwen2.5:3b is what is pulled on the server.
   model: "qwen2.5:3b"
   api_key_env: "LLM_API_KEY"
-  temperature: 0.9
+  temperature: 0.95
+  temperature_jitter: 0.25   # per-post random +/- on temperature
+  presence_penalty: 0.6      # push against reusing the same topics
+  frequency_penalty: 0.4     # push against pet phrases
   max_tokens: 350
 
 bots:
